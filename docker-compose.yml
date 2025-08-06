@@ -1,0 +1,12 @@
+version: "3.8"
+services:
+    auth-proxy:
+        build: .
+        ports:
+            - "4444:4444"
+        environment:
+            - SUPABASE_URL=${SUPABASE_URL}
+            - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+            - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+            - PORT=4444
+        restart: always
