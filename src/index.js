@@ -6,23 +6,39 @@ import { createClient } from "@supabase/supabase-js";
 import jwt from "jsonwebtoken";
 
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+
+// 🔐 Configuração de CORS com origem dinâmica baseada em subdomínio
+app.use(
+	cors({
+		origin: (origin, callback) => {
+			if (!origin) return callback(null, true); // permite chamadas de ferramentas locais
+			const allowedDomain = /\.cplay\.com\.br$/; // ⬅️ ajuste seu domínio principal aqui
+			if (allowedDomain.test(new URL(origin).hostname)) {
+				return callback(null, true);
+			}
+			callback(new Error("CORS: origem não permitida"));
+		},
+		credentials: true,
+	})
+);
+
 app.use(express.json());
 app.use(cookieParser());
 
-// Inicializa o Supabase com a Anon Key
+// 🔗 Inicializa Supabase client
 const supabase = createClient(
 	process.env.SUPABASE_URL,
 	process.env.SUPABASE_ANON_KEY
 );
 
-// Rota de login: signInWithPassword + cookie HttpOnly
+// 🔐 LOGIN - envia cookie HttpOnly com domínio seguro
 app.post("/login", async (req, res) => {
 	const { email, password } = req.body;
 	const { data, error } = await supabase.auth.signInWithPassword({
 		email,
 		password,
 	});
+
 	if (error || !data?.session) {
 		return res
 			.status(401)
@@ -31,22 +47,28 @@ app.post("/login", async (req, res) => {
 
 	const session = data.session;
 
-	// Emite o access_token como cookie HttpOnly
 	res.cookie("access_token", session.access_token, {
 		httpOnly: true,
-		secure: process.env.NODE_ENV === "production",
-		sameSite: "Strict",
-		maxAge: session.expires_in * 1000, // em milissegundos
+		secure: true,
+		sameSite: "None", // ⬅️ necessário para subdomínios + cookies
+		domain: process.env.COOKIE_DOMAIN || ".cplay.com.br", // ⬅️ essencial para cross-subdomain
 		path: "/",
-	}).sendStatus(204);
+		maxAge: session.expires_in * 1000,
+	});
+
+	return res.sendStatus(204);
 });
 
-// Rota de logout: expira o cookie
+// 🔓 LOGOUT - remove o cookie
 app.post("/logout", (_req, res) => {
-	res.clearCookie("access_token", { path: "/" }).sendStatus(204);
+	res.clearCookie("access_token", {
+		path: "/",
+		domain: process.env.COOKIE_DOMAIN || ".cplay.com.br",
+	});
+	return res.sendStatus(204);
 });
 
-// Middleware de proteção
+// 🔐 Middleware de proteção
 function ensureAuthenticated(req, res, next) {
 	const token = req.cookies.access_token;
 	if (!token) return res.sendStatus(401);
@@ -58,14 +80,15 @@ function ensureAuthenticated(req, res, next) {
 	}
 }
 
-// Rota "me": retorna payload do JWT
+// ✅ /me retorna dados do usuário logado (decodificados)
 app.get("/me", ensureAuthenticated, (req, res) => {
 	const token = req.cookies.access_token;
 	const payload = jwt.decode(token);
 	res.json(payload);
 });
 
+// 🚀 Inicializa servidor
 const port = Number(process.env.PORT) || 4444;
-app.listen(port, () =>
-	console.log(`Auth proxy rodando em http://localhost:${port}`)
-);
+app.listen(port, () => {
+	console.log(`✅ Auth proxy rodando em http://localhost:${port}`);
+});
